@@ -220,7 +220,7 @@ def HOSVD(A):
 
     #--- Compute the unfolded core tensor along the chosen axis
     Sun = Transforms[axis-1].transpose().conj() * Aun * B
-
+    print "shapes",A.shape
     S = fold(Sun, axis, A.shape)
 
     return Transforms, S, NModeSingularValues
