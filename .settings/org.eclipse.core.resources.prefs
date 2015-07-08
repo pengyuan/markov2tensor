@@ -1,2 +1,3 @@
 eclipse.preferences.version=1
-encoding//util/hosvd.py=ascii
+encoding//util/hosvd.py=UTF-8
+encoding//util/pykov.py=utf-8

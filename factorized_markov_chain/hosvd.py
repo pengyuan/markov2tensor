@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: ascii -*-
-
+from __future__ import division
 """Higher order singular value decomposition routines
 
 as introduced in:
@@ -12,7 +12,7 @@ implemented by Jiahao Chen <jiahao@mit.edu>, 2010-06-11
 
 Disclaimer: this code may or may not work.
 """
-
+from numpy.linalg import inv
 __author__ = 'Jiahao Chen <jiahao@mit.edu>'
 __copyright__ = 'Copyright (c) 2010 Jiahao Chen'
 __license__ = 'Public domain'
@@ -62,7 +62,7 @@ def unfold(A,n):
     if type(A) != type(np.zeros((1))):
         print "Error: Function designed to work with numpy ndarrays"
         raise ValueError
-    
+
     if not (1 <= n <= A.ndim):
         print "Error: axis %d not in range 1:%d" % (n, A.ndim)
         raise np.linalg.LinAlgError
@@ -72,7 +72,7 @@ def unfold(A,n):
     m = 1
     for i in range(len(s)):
         m *= s[i]
-    m /= s[n-1]
+    m //= s[n-1]
 
     #The unfolded matrix has shape (s[n-1],m)
     Au = np.zeros((s[n-1],m))
@@ -135,7 +135,7 @@ def fold(Au, n, s):
     m = 1
     for i in range(len(s)):
         m *= s[i]
-    m /= s[n-1]
+    m //= s[n-1]
 
     #check for shape compatibility
     if Au.shape != (s[n-1], m):
@@ -163,8 +163,7 @@ def fold(Au, n, s):
     return A
 
 
-
-def HOSVD(A):
+def HOSVD(A, threshold=1.0):
     """Computes the higher order singular value decomposition of a tensor
 
     Parameters
@@ -201,29 +200,109 @@ def HOSVD(A):
     """
 
     Transforms = []
+    Transforms2 = []
     NModeSingularValues = []
 
     #--- Compute the SVD of each possible unfolding
     for i in range(len(A.shape)):
-        U,D,V = np.linalg.svd(unfold(A,i+1))
+        U, D, V = np.linalg.svd(unfold(A, i+1))
         Transforms.append(np.asmatrix(U))
+        # U2 = U.copy()
+        # U2[:, 2] = 0
+        # print "U,U2: ", U, U2
+        # Transforms2.append(np.asmatrix(U2))
         NModeSingularValues.append(D)
 
+    param = []
+    for j in range(len(A.shape)):
+        value_list = list(NModeSingularValues[j])
+        # print "value_list:", value_list
+        length = len(value_list)
+        value_sum = 0
+        for value in value_list:
+            value_sum += value
+        index = length
+        temp = 0
+        while index > 1:
+            temp += value_list[index-1]
+            # print "temp:", temp
+            if temp > value_sum * (1.0 - threshold):
+                break
+            index -= 1
+
+        param.append(index)
+
+    for k in range(len(A.shape)):
+        U2 = Transforms[k].copy()
+        # print "col: ", Transforms[k].shape[1]
+        if param[k] < Transforms[k].shape[1]:
+            for col in range(param[k], Transforms[k].shape[1]):
+                U2[:, col] = 0
+        Transforms2.append(np.asmatrix(U2))
+
+    # print "Transforms:", Transforms
+    # print "Transforms2:", Transforms2
+
+    # print "param: ", param
     #--- Compute the unfolded core tensor
     axis = 1 #An arbitrary choice, really
-    Aun = unfold(A,axis)
+    Aun = unfold(A, axis)
 
     #--- Computes right hand side transformation matrix
     B = np.ones((1,))
-    for i in range(axis-A.ndim,axis-1):
-        B = np.kron(B, Transforms[i])
+    # print "B:", type(B)
+    # print A.ndim
+    for i in range(axis-A.ndim, axis-1):
+        # print "i:", i
+        B = np.kron(B, Transforms2[i])
 
     #--- Compute the unfolded core tensor along the chosen axis
-    Sun = Transforms[axis-1].transpose().conj() * Aun * B
-    print "shapes",A.shape
+    # S(n) =U ?A(n)? U ?U ?????U ?U ?U ?????U . (p. 12  ??23)
+    # print "shape1: ", Transforms2[axis-1].transpose().conj().shape
+    # print "shape2: ", Aun.shape
+    # print "shape3: ", B.shape
+    Sun = Transforms2[axis-1].transpose().conj() * Aun * B
+
+    # print Sun.shape
     S = fold(Sun, axis, A.shape)
 
-    return Transforms, S, NModeSingularValues
+    return Transforms2, S, NModeSingularValues
+
+
+def recon(tensor, matrix, mode):
+    Asize = np.asarray(tensor.shape)
+
+    Asize[mode-1] = matrix.shape[0]
+
+    An = unfold(tensor, mode)
+    T = fold(np.dot(matrix, An), mode, Asize)
+    return T
+
+
+def reconstruct(S, U):
+    axis = 1
+    Sun = unfold(S, axis)
+
+    B = np.ones((1,))
+    for i in range(axis-S.ndim, axis-1):
+        B = np.kron(B, U[i])
+    Aun = U[axis-1] * Sun * (B.transpose().conj())
+
+    A = fold(Aun, axis, S.shape)
+
+    return A
+
+
+def frobenius_norm(A):
+    Aun = unfold(A, 1)
+    #print "Aun: ", Aun
+    a, b = Aun.shape
+    sum = 0
+    for i in range(0, a):
+        for j in range(0, b):
+            sum += Aun[i, j] ** 2
+
+    return sum ** 0.5
 
 
 if __name__ == '__main__':
@@ -284,22 +363,22 @@ if __name__ == '__main__':
     A = np.zeros((3,3,3))
 
     A[:,0,:] = np.asmatrix([[0.9073, 0.8924, 2.1488],
-    [0.7158, -0.4898, 0.3054],
-    [-0.3698, 2.4288, 2.3753]]).transpose()
+                            [0.7158, -0.4898, 0.3054],
+                            [-0.3698, 2.4288, 2.3753]]).transpose()
 
     A[:,1,:] = np.asmatrix([[1.7842, 1.7753, 4.2495],
-    [1.6970, -1.5077, 0.3207],
-    [0.0151, 4.0337, 4.7146]]).transpose()
+                            [1.6970, -1.5077, 0.3207],
+                            [0.0151, 4.0337, 4.7146]]).transpose()
 
     A[:,2,:] = np.asmatrix([[2.1236, -0.6631, 1.8260],
-    [-0.0740, 1.9103, 2.1335],
-    [1.4429, -1.7495,-0.2716]]).transpose()
+                            [-0.0740, 1.9103, 2.1335],
+                            [1.4429, -1.7495,-0.2716]]).transpose()
 
     print "The input tensor has matrix unfolding along axis 1:"
-    print unfold(A,1)
+    print unfold(A, 1)
     print
 
-    U, S, D = HOSVD(A)
+    U, S, D = HOSVD(A, 1.0)
 
     print "The left n-mode singular matrices are:"
     print U[0]
@@ -314,6 +393,17 @@ if __name__ == '__main__':
     print
 
     print "The n-mode singular values are:"
-    print D[0]
+    print list(D[0])
     print D[1]
     print D[2]
+
+    s1 = unfold(S, 1)
+    print "core tensor unfold: ", s1
+    print "orthogonal: ", s1[1].dot(s1[2])
+
+    # print np.array([1, 2]).dot(np.array([2, 3]))
+
+    A2 = reconstruct(S, U)
+    print "reconstruct tensor: ", A2
+
+    print frobenius_norm(A-A2)
