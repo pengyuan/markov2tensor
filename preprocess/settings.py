@@ -3,5 +3,5 @@
 
 HOST = "localhost"
 USER = "root"
-PASSWORD = "csupeng"
+PASSWORD = "123456"
 DB = "markov2tensor"
